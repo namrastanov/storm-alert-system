@@ -108,6 +108,21 @@ class RabbitMQEventBus:
         """Connect to RabbitMQ."""
         try:
             import aio_pika
+        except ImportError:
+            raise RuntimeError(
+                "aio_pika is required for RabbitMQ support. "
+                "Install it with: pip install aio_pika"
+            )
+        self._connection = await aio_pika.connect_robust(self.url)
+        self._channel = await self._connection.channel()
+        await self._channel.declare_exchange(
+            self.exchange,
+            aio_pika.ExchangeType.TOPIC
+        )
+        logger.info("Connected to RabbitMQ")
+        """Connect to RabbitMQ."""
+        try:
+            import aio_pika
             self._connection = await aio_pika.connect_robust(self.url)
             self._channel = await self._connection.channel()
             await self._channel.declare_exchange(
