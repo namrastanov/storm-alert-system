@@ -120,18 +120,6 @@ class RabbitMQEventBus:
             aio_pika.ExchangeType.TOPIC
         )
         logger.info("Connected to RabbitMQ")
-        """Connect to RabbitMQ."""
-        try:
-            import aio_pika
-            self._connection = await aio_pika.connect_robust(self.url)
-            self._channel = await self._connection.channel()
-            await self._channel.declare_exchange(
-                self.exchange,
-                aio_pika.ExchangeType.TOPIC
-            )
-            logger.info("Connected to RabbitMQ")
-        except ImportError:
-            logger.warning("aio_pika not installed")
 
     async def publish(self, event: Event, routing_key: str = "") -> None:
         """Publish event to RabbitMQ."""
