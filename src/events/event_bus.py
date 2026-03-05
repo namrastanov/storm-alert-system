@@ -100,7 +100,7 @@ class RabbitMQEventBus:
     """Event bus using RabbitMQ."""
 
     def __init__(self, url: str, exchange: str = "events"):
-        self.url = url
+        self._url = url
         self.exchange = exchange
         self._connection = None
         self._channel = None
