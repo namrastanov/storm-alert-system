@@ -87,7 +87,8 @@ class EventBus:
             try:
                 await handler.handle(event)
             except Exception as e:
-                logger.error(f"Handler error: {e}")
+                logger.error(f"Handler {handler.__class__.__name__} error for event {event.event_type}: {e}", exc_info=True)
+                # TODO: Route failed events to dead letter queue
 
     def stop(self) -> None:
         """Stop event bus."""
