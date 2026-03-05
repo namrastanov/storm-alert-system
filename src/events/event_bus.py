@@ -5,7 +5,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Any
+from typing import Dict, List, Any
 import logging
 
 logger = logging.getLogger(__name__)
