@@ -125,6 +125,11 @@ class RabbitMQEventBus:
             await self._connection.close()
             self._connection = None
             raise
+            )
+        except Exception:
+            await self._connection.close()
+            self._connection = None
+            raise
         logger.info("Connected to RabbitMQ")
 
     async def publish(self, event: Event, routing_key: str = "") -> None:
