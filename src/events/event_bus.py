@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Event:
     """Base event class."""
-    event_type: str
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     payload: Dict[str, Any]
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     event_id: str = ""
