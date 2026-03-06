@@ -16,7 +16,7 @@ class Event:
     """Base event class."""
     event_type: str
     payload: Dict[str, Any]
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     event_id: str = ""
     
     def to_json(self) -> str:
