@@ -115,11 +115,16 @@ class RabbitMQEventBus:
                 "Install it with: pip install aio_pika"
             )
         self._connection = await aio_pika.connect_robust(self._url)
-        self._channel = await self._connection.channel()
-        await self._channel.declare_exchange(
-            self.exchange,
-            aio_pika.ExchangeType.TOPIC
-        )
+        try:
+            self._channel = await self._connection.channel()
+            await self._channel.declare_exchange(
+                self.exchange,
+                aio_pika.ExchangeType.TOPIC
+            )
+        except Exception:
+            await self._connection.close()
+            self._connection = None
+            raise
         logger.info("Connected to RabbitMQ")
 
     async def publish(self, event: Event, routing_key: str = "") -> None:
