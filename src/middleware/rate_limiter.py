@@ -164,10 +164,10 @@ def rate_limit_middleware(limiter: RateLimiter, key_func):
         result = limiter.check(key)
         
         if not result.allowed:
-# Consider adding fastapi to setup.py install_requires,
-# or return a framework-agnostic response object.
-# For now, if keeping fastapi:
-from fastapi.responses import JSONResponse
+            # Consider adding fastapi to setup.py install_requires,
+            # or return a framework-agnostic response object.
+            # For now, if keeping fastapi:
+            from fastapi.responses import JSONResponse
             return JSONResponse(
                 status_code=429,
                 content={"error": "Rate limit exceeded"},
