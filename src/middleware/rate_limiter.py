@@ -94,7 +94,7 @@ class RateLimiter:
         
         if not allowed:
             self._blocked[key] = time.time() + self.config.block_duration_seconds
-            logger.warning(f"Rate limit exceeded for {key}")
+logger.warning(f"Rate limit exceeded for {key[:8]}..." if len(key) > 8 else f"Rate limit exceeded for {key}")
         
         return RateLimitResult(
             allowed=allowed,
