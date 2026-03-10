@@ -23,6 +23,10 @@ class RateLimitConfig:
     bucket_ttl_seconds: int = _DEFAULT_BUCKET_TTL
     max_keys: int = _DEFAULT_MAX_KEYS
     eviction_interval_seconds: int = _DEFAULT_EVICTION_INTERVAL
+    # Graduated response settings
+    warning_threshold: int = 1   # violations before throttling starts
+    throttle_threshold: int = 3  # violations before a full block
+    throttle_delay_seconds: int = 5  # short retry-after during throttle phase
 
 
 @dataclass
@@ -76,6 +80,7 @@ class RateLimiter:
         self.redis_url = redis_url
         self._buckets: Dict[str, TokenBucket] = {}
         self._blocked: Dict[str, float] = {}
+        self._violations: Dict[str, int] = {}  # tracks consecutive violations per key
         self._last_access: Dict[str, float] = {}  # tracks last access time per key
         self._last_eviction: float = time.time()
 
@@ -92,6 +97,7 @@ class RateLimiter:
         expired_blocks = [k for k, v in self._blocked.items() if now >= v]
         for k in expired_blocks:
             del self._blocked[k]
+            self._violations.pop(k, None)
 
         # Evict idle buckets (not accessed within TTL)
         stale_keys = [
@@ -102,6 +108,7 @@ class RateLimiter:
             self._buckets.pop(k, None)
             self._last_access.pop(k, None)
             self._blocked.pop(k, None)
+            self._violations.pop(k, None)
 
         # Hard cap: if still over max_keys, evict oldest entries first
         if len(self._buckets) > self.config.max_keys:
@@ -111,6 +118,7 @@ class RateLimiter:
                 self._buckets.pop(k, None)
                 self._last_access.pop(k, None)
                 self._blocked.pop(k, None)
+                self._violations.pop(k, None)
 
     def _get_bucket(self, key: str) -> TokenBucket:
         """Get or create bucket for key."""
@@ -121,10 +129,10 @@ class RateLimiter:
         return self._buckets[key]
 
     def check(self, key: str) -> RateLimitResult:
-        """Check if request is allowed."""
-        # Run periodic eviction to bound memory
+        """Check if request is allowed (graduated: warning -> throttle -> block)."""
         self._evict_stale()
 
+        # Phase 3: already fully blocked
         if key in self._blocked:
             block_until = self._blocked[key]
             if time.time() < block_until:
@@ -132,28 +140,67 @@ class RateLimiter:
                     allowed=False,
                     remaining=0,
                     reset_at=block_until,
-                    retry_after=int(block_until - time.time())
+                    retry_after=int(block_until - time.time()),
                 )
+            # Block expired — reset state for this key
             del self._blocked[key]
-        
+            self._violations.pop(key, None)
+
         bucket = self._get_bucket(key)
         allowed = bucket.consume()
-        
-        if not allowed:
-            self._blocked[key] = time.time() + self.config.block_duration_seconds
-            logger.warning(f"Rate limit exceeded for {key[:8]}..." if len(key) > 8 else f"Rate limit exceeded for {key}")
-        
+
+        if allowed:
+            # Successful request — reset violation counter
+            self._violations.pop(key, None)
+            return RateLimitResult(
+                allowed=True,
+                remaining=bucket.tokens,
+                reset_at=time.time() + 60,
+            )
+
+        # --- Not allowed: graduated response ---
+        violations = self._violations.get(key, 0) + 1
+        self._violations[key] = violations
+        cfg = self.config
+
+        if violations <= cfg.warning_threshold:
+            # Phase 1 – Warning: deny this request but with a short retry window
+            logger.info(
+                f"Rate limit warning ({violations}/{cfg.throttle_threshold}) for "
+                f"{key[:8]}..." if len(key) > 8 else
+                f"Rate limit warning ({violations}/{cfg.throttle_threshold}) for {key}"
+            )
+            retry_after = cfg.throttle_delay_seconds
+        elif violations <= cfg.throttle_threshold:
+            # Phase 2 – Throttle: deny with a moderate retry window
+            logger.warning(
+                f"Rate limit throttled ({violations}/{cfg.throttle_threshold}) for "
+                f"{key[:8]}..." if len(key) > 8 else
+                f"Rate limit throttled ({violations}/{cfg.throttle_threshold}) for {key}"
+            )
+            retry_after = cfg.throttle_delay_seconds * violations
+        else:
+            # Phase 3 – Block: hard block for the full duration
+            self._blocked[key] = time.time() + cfg.block_duration_seconds
+            logger.warning(
+                f"Rate limit BLOCKED for "
+                f"{key[:8]}..." if len(key) > 8 else
+                f"Rate limit BLOCKED for {key}"
+            )
+            retry_after = cfg.block_duration_seconds
+
         return RateLimitResult(
-            allowed=allowed,
-            remaining=bucket.tokens,
-            reset_at=time.time() + 60,
-            retry_after=self.config.block_duration_seconds if not allowed else None
+            allowed=False,
+            remaining=0,
+            reset_at=time.time() + retry_after,
+            retry_after=retry_after,
         )
 
     def reset(self, key: str) -> None:
         """Reset limits for key."""
         self._buckets.pop(key, None)
         self._blocked.pop(key, None)
+        self._violations.pop(key, None)
         self._last_access.pop(key, None)
 
 
