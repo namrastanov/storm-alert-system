@@ -92,8 +92,15 @@ class RateLimiter:
         bucket = self._get_bucket(key)
         allowed = bucket.consume()
         
-        if not allowed:
-            self._blocked[key] = time.time() + self.config.block_duration_seconds
+Consider tracking a violation count per key and only blocking after N consecutive or recent violations:
+
+if not allowed:
+    self._violations[key] = self._violations.get(key, 0) + 1
+    if self._violations[key] >= self.config.block_threshold:
+        self._blocked[key] = time.time() + self.config.block_duration_seconds
+        logger.warning(f"Key blocked due to repeated rate limit violations: {key}")
+    else:
+        logger.info(f"Rate limit exceeded for key (violation {self._violations[key]})")
 logger.warning(f"Rate limit exceeded for {key[:8]}..." if len(key) > 8 else f"Rate limit exceeded for {key}")
         
         return RateLimitResult(
