@@ -140,7 +140,7 @@ class RateLimiter:
                     allowed=False,
                     remaining=0,
                     reset_at=block_until,
-                    retry_after=int(block_until - time.time()),
+                    retry_after=max(1, int(block_until - time.time())),
                 )
             # Block expired — reset state for this key
             del self._blocked[key]
