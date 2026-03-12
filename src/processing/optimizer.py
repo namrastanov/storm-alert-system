@@ -141,7 +141,16 @@ class ProcessingOptimizer:
               cell = self._get_cell(lat, lon)
               if cell not in self._grid:
                   self._grid[cell] = []
-              self._grid[cell].append(item)
+- def _process_single(self, alert: dict) -> dict:
++ def _process_single(self, alert: dict) -> dict:
+      """Process single alert."""
++     processed_alert = alert.copy()
+-     alert["processed"] = True
+-     alert["processed_at"] = time.time()
+-     return alert
++     processed_alert["processed"] = True
++     processed_alert["processed_at"] = time.time()
++     return processed_alert
 
       def query_radius(self, lat: float, lon: float, radius_cells: int = 1) -> List[dict]:
           """Query items within radius."""
