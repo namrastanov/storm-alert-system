@@ -114,7 +114,23 @@ class BatchProcessor:
 
 
 class ProcessingOptimizer:
-    """Optimized alert processing pipeline."""
+- def __init__(self, workers: int = 4):
++ def __init__(self, workers: int = 4):
++     import threading
+      self.workers = workers
+      self._executor = ThreadPoolExecutor(max_workers=workers)
+      self._metrics = ProcessingMetrics()
++     self._metrics_lock = threading.Lock()
+      self._geo_index = GeoIndex()
+      self._connection_pool: Dict = {}
+
+- def _update_metrics(self, count: int, elapsed_ms: float) -> None:
++ def _update_metrics(self, count: int, elapsed_ms: float) -> None:
++     with self._metrics_lock:
+          self._metrics.alerts_processed += count
+          self._metrics.total_time_ms += elapsed_ms
+          self._metrics.avg_latency_ms = elapsed_ms / count if count > 0 else 0
+          self._metrics.throughput_per_sec = (count / elapsed_ms) * 1000 if elapsed_ms > 0 else 0
 
     def __init__(self, workers: int = 4):
         self.workers = workers
