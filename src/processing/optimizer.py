@@ -82,7 +82,7 @@ class BatchProcessor:
 + from concurrent.futures import ThreadPoolExecutor
 + import threading
 
-- self._lock = asyncio.Lock()
+Either remove the unused BatchProcessor class, or refactor ProcessingOptimizer to actually use it with proper async/await patterns instead of ThreadPoolExecutor. The current design mixes two incompatible concurrency models.
 + self._lock = threading.Lock()
 
     async def add(self, item: dict) -> None:
