@@ -87,7 +87,7 @@ Either remove the unused BatchProcessor class, or refactor ProcessingOptimizer t
 
     async def add(self, item: dict) -> None:
         """Add item to batch."""
-        async with self._lock:
+        with self._lock:
             self._buffer.append(item)
             
             should_flush = (
