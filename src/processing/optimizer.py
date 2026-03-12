@@ -78,7 +78,12 @@ class BatchProcessor:
         self.process_func = process_func
         self._buffer: List = []
         self._last_flush = time.time()
-        self._lock = asyncio.Lock()
+- from concurrent.futures import ThreadPoolExecutor
++ from concurrent.futures import ThreadPoolExecutor
++ import threading
+
+- self._lock = asyncio.Lock()
++ self._lock = threading.Lock()
 
     async def add(self, item: dict) -> None:
         """Add item to batch."""
