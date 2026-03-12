@@ -113,7 +113,14 @@ Either remove the unused BatchProcessor class, or refactor ProcessingOptimizer t
         logger.debug(f"Flushed batch of {len(batch)} items")
 
 
-class ProcessingOptimizer:
+Consider implementing __enter__ and __exit__ methods to make ProcessingOptimizer a context manager, or add __del__ to ensure cleanup:
+
++ def __enter__(self):
++     return self
++ 
++ def __exit__(self, exc_type, exc_val, exc_tb):
++     self.shutdown()
++     return False
 - def __init__(self, workers: int = 4):
 - class GeoIndex:
 + import threading
