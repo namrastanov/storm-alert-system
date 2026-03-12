@@ -115,7 +115,33 @@ class BatchProcessor:
 
 class ProcessingOptimizer:
 - def __init__(self, workers: int = 4):
-+ def __init__(self, workers: int = 4):
+- class GeoIndex:
++ import threading
++ class GeoIndex:
+      """Spatial index for geographic queries."""
+      def __init__(self, resolution: float = 0.1):
+          self.resolution = resolution
+          self._grid: Dict[tuple, List] = {}
++         self._lock = threading.Lock()
+
+      def insert(self, item: dict, lat: float, lon: float) -> None:
+          """Insert item into index."""
++         with self._lock:
+              cell = self._get_cell(lat, lon)
+              if cell not in self._grid:
+                  self._grid[cell] = []
+              self._grid[cell].append(item)
+
+      def query_radius(self, lat: float, lon: float, radius_cells: int = 1) -> List[dict]:
+          """Query items within radius."""
++         with self._lock:
+              center = self._get_cell(lat, lon)
+              results = []
+              for dx in range(-radius_cells, radius_cells + 1):
+                  for dy in range(-radius_cells, radius_cells + 1):
+                      cell = (center[0] + dx, center[1] + dy)
+                      results.extend(self._grid.get(cell, []))
+              return results
 +     import threading
       self.workers = workers
       self._executor = ThreadPoolExecutor(max_workers=workers)
