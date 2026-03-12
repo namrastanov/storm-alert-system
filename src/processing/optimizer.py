@@ -122,7 +122,18 @@ class ProcessingOptimizer:
       def __init__(self, resolution: float = 0.1):
           self.resolution = resolution
           self._grid: Dict[tuple, List] = {}
-+         self._lock = threading.Lock()
+- async def process_alerts(self, alerts: List[dict]) -> List[dict]:
++ async def process_alerts(self, alerts: List[dict]) -> List[dict]:
+      """Process alerts with optimizations."""
+      start_time = time.time()
+      
+-     loop = asyncio.get_event_loop()
+-     results = await loop.run_in_executor(
++     results = await asyncio.get_running_loop().run_in_executor(
+          self._executor,
+          self._process_batch,
+          alerts
+      )
 
       def insert(self, item: dict, lat: float, lon: float) -> None:
           """Insert item into index."""
