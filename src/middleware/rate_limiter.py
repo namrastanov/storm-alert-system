@@ -146,7 +146,7 @@ class RateLimiter:
             remaining=bucket.tokens,
             reset_at=time.time() + 60,
             retry_after=60 if not allowed else None
-        )
+            retry_after=int(1 / self.config.requests_per_minute * 60) if not allowed else None
 
     def reset(self, key: str) -> None:
         """Reset limits for key."""
