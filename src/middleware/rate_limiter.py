@@ -18,7 +18,6 @@ class RateLimitConfig:
     """Rate limit configuration."""
     requests_per_minute: int = 60
     burst_size: int = 10
-    burst_size: int = 10
     block_duration_seconds: int = 300
     bucket_ttl_seconds: int = _DEFAULT_BUCKET_TTL
     max_keys: int = _DEFAULT_MAX_KEYS
