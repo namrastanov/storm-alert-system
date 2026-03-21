@@ -141,11 +141,20 @@ class RateLimiter:
         if not allowed:
             logger.warning(f"Rate limit exceeded for {key[:8]}..." if len(key) > 8 else f"Rate limit exceeded for {key}")
         
+        # Calculate retry_after safely, ensuring minimum 1 second and avoiding division by zero
+        retry_after = None
+        if not allowed:
+            if self.config.requests_per_minute > 0:
+                retry_after = max(1, int(60 / self.config.requests_per_minute))
+            else:
+                retry_after = self.config.block_duration_seconds
+        
         return RateLimitResult(
             allowed=allowed,
             remaining=bucket.tokens,
             reset_at=time.time() + 60,
-            retry_after=int(1 / self.config.requests_per_minute * 60) if not allowed else None
+            retry_after=retry_after
+        )
 
     def reset(self, key: str) -> None:
         """Reset limits for key."""
