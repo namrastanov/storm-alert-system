@@ -17,7 +17,6 @@ _DEFAULT_EVICTION_INTERVAL = 60  # seconds between eviction sweeps
 class RateLimitConfig:
     """Rate limit configuration."""
     requests_per_minute: int = 60
-    requests_per_hour: int = 1000
     burst_size: int = 10
     block_duration_seconds: int = 300
     bucket_ttl_seconds: int = _DEFAULT_BUCKET_TTL
@@ -140,14 +139,25 @@ class RateLimiter:
         allowed = bucket.consume()
         
         if not allowed:
-            self._blocked[key] = time.time() + self.config.block_duration_seconds
             logger.warning(f"Rate limit exceeded for {key[:8]}..." if len(key) > 8 else f"Rate limit exceeded for {key}")
+        
+        # Calculate retry_after safely, ensuring minimum 1 second and avoiding division by zero
+        retry_after = None
+        if not allowed:
+            if self.config.requests_per_minute > 0:
+        # Calculate retry_after safely, ensuring minimum 1 second and avoiding division by zero
+        retry_after = None
+        if not allowed:
+            if self.config.requests_per_minute > 0:
+                retry_after = max(1, int(60 / self.config.requests_per_minute))
+            else:
+                retry_after = self.config.block_duration_seconds
         
         return RateLimitResult(
             allowed=allowed,
             remaining=bucket.tokens,
             reset_at=time.time() + 60,
-            retry_after=self.config.block_duration_seconds if not allowed else None
+            retry_after=retry_after
         )
 
     def reset(self, key: str) -> None:
@@ -157,16 +167,20 @@ class RateLimiter:
         self._last_access.pop(key, None)
 
 
-def rate_limit_middleware(limiter: RateLimiter, key_func):
+def rate_limit_middleware(limiter: RateLimiter, key_func: callable) -> callable:
     """Create rate limiting middleware."""
     async def middleware(request, call_next):
         key = key_func(request)
         result = limiter.check(key)
         
         if not result.allowed:
-            # Consider adding fastapi to setup.py install_requires,
-            # or return a framework-agnostic response object.
-            # For now, if keeping fastapi:
+            headers={
+                **({"Retry-After": str(result.retry_after)} if result.retry_after is not None else {}),
+from typing import Callable
+
+def rate_limit_middleware(limiter: RateLimiter, key_func: Callable) -> Callable:
+            }
+            # Consider adding fastapi to setup.py install_requires
             from fastapi.responses import JSONResponse
             return JSONResponse(
                 status_code=429,
