@@ -180,10 +180,13 @@ def rate_limit_middleware(limiter: RateLimiter, key_func: callable) -> callable:
     """Create rate limiting middleware."""
     async def middleware(request, call_next):
         key = key_func(request)
-                headers={
-                    **({"Retry-After": str(result.retry_after)} if result.retry_after is not None else {}),
-                    "X-RateLimit-Remaining": "0"
-                }
+        result = limiter.check(key)
+        
+        if not result.allowed:
+            headers={
+                **({"Retry-After": str(result.retry_after)} if result.retry_after is not None else {}),
+                "X-RateLimit-Remaining": "0"
+            }
             # Consider adding fastapi to setup.py install_requires
             from fastapi.responses import JSONResponse
             return JSONResponse(
