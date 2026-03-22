@@ -176,7 +176,9 @@ def rate_limit_middleware(limiter: RateLimiter, key_func: callable) -> callable:
         if not result.allowed:
             headers={
                 **({"Retry-After": str(result.retry_after)} if result.retry_after is not None else {}),
-                "X-RateLimit-Remaining": "0"
+from typing import Callable
+
+def rate_limit_middleware(limiter: RateLimiter, key_func: Callable) -> Callable:
             }
             # Consider adding fastapi to setup.py install_requires
             from fastapi.responses import JSONResponse
