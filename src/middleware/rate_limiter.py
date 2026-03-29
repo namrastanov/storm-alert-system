@@ -1,8 +1,10 @@
-"""API rate limiting middleware."""
+"""API rate limiting middleware"""
 
+import asyncio
+import json
 import time
-from dataclasses import dataclass, field
-from typing import Optional, Dict
+from dataclasses import dataclass
+from typing import Optional, Dict, Callable, Any, Awaitable
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,7 +19,6 @@ _DEFAULT_EVICTION_INTERVAL = 60  # seconds between eviction sweeps
 class RateLimitConfig:
     """Rate limit configuration."""
     requests_per_minute: int = 60
-    requests_per_hour: int = 1000
     burst_size: int = 10
     block_duration_seconds: int = 300
     bucket_ttl_seconds: int = _DEFAULT_BUCKET_TTL
@@ -40,7 +41,7 @@ class TokenBucket:
     def __init__(self, rate: float, capacity: int):
         self.rate = rate
         self.capacity = capacity
-        self._tokens = capacity
+        self._tokens = float(capacity)
         self._last_update = time.time()
 
     def _refill(self) -> None:
@@ -62,23 +63,34 @@ class TokenBucket:
         return False
 
     @property
-    @property
     def tokens(self) -> float:
         """Get current token count."""
         self._refill()
         return self._tokens
 
+    def time_to_next_token(self) -> float:
+        """Return seconds until at least one token is available."""
+        self._refill()
+        if self._tokens >= 1:
+            return 0.0
+        return (1.0 - self._tokens) / self.rate
+
 
 class RateLimiter:
-    """Rate limiter with per-key tracking."""
+    """In-memory rate limiter suitable for single-process deployments.
 
-    def __init__(self, config: RateLimitConfig, redis_url: Optional[str] = None):
+    For distributed environments, a Redis-backed implementation with atomic operations
+    (e.g., MULTI/EXEC) should be used.
+    """
+
+    def __init__(self, config: RateLimitConfig):
         self.config = config
-        self.redis_url = redis_url
         self._buckets: Dict[str, TokenBucket] = {}
         self._blocked: Dict[str, float] = {}
+        self._violations: Dict[str, tuple[int, float]] = {}  # (count, first_violation_time)
         self._last_access: Dict[str, float] = {}  # tracks last access time per key
         self._last_eviction: float = time.time()
+        self._lock = asyncio.Lock()
 
     def _evict_stale(self) -> None:
         """Periodically remove stale buckets and expired blocks to bound memory."""
@@ -93,10 +105,14 @@ class RateLimiter:
         expired_blocks = [k for k, v in self._blocked.items() if now >= v]
         for k in expired_blocks:
             del self._blocked[k]
+            self._violations.pop(k, None)
 
+        # Evict stale buckets that haven't been accessed within the TTL
+        stale_keys = [k for k, v in self._last_access.items() if now - v > ttl]
         for k in stale_keys:
             self._buckets.pop(k, None)
             self._last_access.pop(k, None)
+            # Do NOT remove from _blocked or _violations — they have separate expiration
 
         # Hard cap: if still over max_keys, evict oldest entries first
         if len(self._buckets) > self.config.max_keys:
@@ -106,6 +122,74 @@ class RateLimiter:
                 self._buckets.pop(k, None)
                 self._last_access.pop(k, None)
                 self._blocked.pop(k, None)
+                self._violations.pop(k, None)
+
+    async def check(self, key: str) -> RateLimitResult:
+        """Check if request is allowed."""
+        # Offload eviction to a thread to avoid blocking the event loop
+        await asyncio.to_thread(self._evict_stale)
+
+        async with self._lock:
+            now = time.time()
+
+            # Check if key is blocked
+            if key in self._blocked:
+                block_until = self._blocked[key]
+                if now < block_until:
+                    return RateLimitResult(
+                        allowed=False,
+                        remaining=0,
+                        reset_at=block_until,
+                        retry_after=int(block_until - now)
+                    )
+                # Block expired
+                del self._blocked[key]
+                self._violations.pop(key, None)
+
+            bucket = self._get_bucket(key)
+            allowed = bucket.consume()
+
+            if not allowed:
+                # Update violation count
+                violation_count, first_violation_time = self._violations.get(key, (0, now))
+                if now - first_violation_time > 60:  # violation window expired
+                    violation_count = 0
+                    first_violation_time = now
+                violation_count += 1
+                self._violations[key] = (violation_count, first_violation_time)
+
+                if violation_count >= 2:  # Second violation within window → block
+                    block_until = now + self.config.block_duration_seconds
+                    self._blocked[key] = block_until
+                    logger.warning(
+                        f"Rate limit exceeded for {key[:8]}... (blocked for {self.config.block_duration_seconds}s)"
+                        if len(key) > 8 else
+                        f"Rate limit exceeded for {key} (blocked for {self.config.block_duration_seconds}s)"
+                    )
+                    retry_after = self.config.block_duration_seconds
+                    reset_at = block_until
+                else:
+                    # First violation → warning only, no block
+                    logger.warning(
+                        f"Rate limit warning for {key[:8]}..."
+                        if len(key) > 8 else
+                        f"Rate limit warning for {key}"
+                    )
+                    retry_after = int(bucket.time_to_next_token())
+                    reset_at = now + retry_after if retry_after > 0 else now
+            else:
+                # Request allowed, reset violation count
+                self._violations.pop(key, None)
+                retry_after = None
+                reset_at = (now // 60 + 1) * 60  # next whole minute for per-minute rate limiting
+
+            remaining = int(bucket.tokens) if bucket.tokens >= 0 else 0
+            return RateLimitResult(
+                allowed=allowed,
+                remaining=remaining,
+                reset_at=reset_at,
+                retry_after=retry_after
+            )
 
     def _get_bucket(self, key: str) -> TokenBucket:
         """Get or create bucket for key."""
@@ -115,71 +199,48 @@ class RateLimiter:
         self._last_access[key] = time.time()
         return self._buckets[key]
 
-    def check(self, key: str) -> RateLimitResult:
-        """Check if request is allowed."""
-        # Run periodic eviction to bound memory
-        self._evict_stale()
-
-        if key in self._blocked:
-            block_until = self._blocked[key]
-            if time.time() < block_until:
-                return RateLimitResult(
-                    allowed=False,
-                    remaining=0,
-                    reset_at=block_until,
-                    retry_after=int(block_until - time.time())
-                )
-            del self._blocked[key]
-        
-        bucket = self._get_bucket(key)
-        allowed = bucket.consume()
-        
-        if not allowed:
-            self._blocked[key] = time.time() + self.config.block_duration_seconds
-            logger.warning(f"Rate limit exceeded for {key[:8]}..." if len(key) > 8 else f"Rate limit exceeded for {key}")
-        
-        return RateLimitResult(
-            allowed=allowed,
-            remaining=bucket.tokens,
-        # Compute reset time as next whole minute boundary for per‑minute rate limiting
-        reset_at = (time.time() // 60 + 1) * 60
-        return RateLimitResult(
-            allowed=allowed,
-            remaining=bucket.tokens,
-            reset_at=reset_at,
-            retry_after=self.config.block_duration_seconds if not allowed else None
-        )
-            retry_after=self.config.block_duration_seconds if not allowed else None
-        )
-
     def reset(self, key: str) -> None:
         """Reset limits for key."""
         self._buckets.pop(key, None)
         self._blocked.pop(key, None)
+        self._violations.pop(key, None)
         self._last_access.pop(key, None)
 
 
-def rate_limit_middleware(limiter: RateLimiter, key_func):
-    """Create rate limiting middleware."""
-    async def middleware(request, call_next):
+def rate_limit_middleware(
+    limiter: RateLimiter,
+    key_func: Callable[[Any], str]
+) -> Callable[[Any, Callable[[Any], Awaitable[Any]]], Awaitable[Any]]:
+    """Create framework-agnostic ASGI rate limiting middleware."""
+    async def middleware(request: Any, call_next: Callable[[Any], Awaitable[Any]]) -> Any:
         key = key_func(request)
-            # Consider adding fastapi to setup.py install_requires,
-            # or return a framework-agnostic response object.
-            # For now, if keeping fastapi:
-            from fastapi.responses import JSONResponse
-            # For now, if keeping fastapi:
-            from fastapi.responses import JSONResponse
-            return JSONResponse(
-                status_code=429,
-                content={"error": "Rate limit exceeded"},
-                headers={
-                    "Retry-After": str(result.retry_after),
-                    "X-RateLimit-Remaining": "0"
-                }
-            )
-        
+        result = await limiter.check(key)
+
+        if not result.allowed:
+            body = json.dumps({"error": "Rate limit exceeded"}).encode("utf-8")
+            headers = [
+                (b"content-type", b"application/json"),
+                (b"retry-after", str(result.retry_after).encode()),
+                (b"x-ratelimit-remaining", b"0"),
+                (b"x-ratelimit-reset", str(int(result.reset_at)).encode()),
+            ]
+
+            async def send_rate_limit_response(scope, receive, send):
+                await send({
+                    "type": "http.response.start",
+                    "status": 429,
+                    "headers": headers,
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": body,
+                })
+
+            return send_rate_limit_response
+
         response = await call_next(request)
         response.headers["X-RateLimit-Remaining"] = str(result.remaining)
+        response.headers["X-RateLimit-Reset"] = str(int(result.reset_at))
         return response
-    
+
     return middleware

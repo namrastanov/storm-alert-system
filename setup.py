@@ -16,6 +16,7 @@ setup(
         "pandas>=2.0.0",
         "scikit-learn>=1.3.0",
         "requests>=2.31.0",
+        "fastapi>=0.100.0",
     ],
     extras_require={
         "dev": [
