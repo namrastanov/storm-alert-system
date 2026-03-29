@@ -93,15 +93,9 @@ class RateLimiter:
         for k in expired_blocks:
             del self._blocked[k]
 
-        # Evict idle buckets (not accessed within TTL)
-        stale_keys = [
-            k for k, last in self._last_access.items()
-            if now - last > ttl
-        ]
         for k in stale_keys:
             self._buckets.pop(k, None)
             self._last_access.pop(k, None)
-            self._blocked.pop(k, None)
 
         # Hard cap: if still over max_keys, evict oldest entries first
         if len(self._buckets) > self.config.max_keys:
