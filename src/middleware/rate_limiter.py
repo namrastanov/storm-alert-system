@@ -146,7 +146,14 @@ class RateLimiter:
         return RateLimitResult(
             allowed=allowed,
             remaining=bucket.tokens,
-            reset_at=time.time() + 60,
+        # Compute reset time as next whole minute boundary for per‑minute rate limiting
+        reset_at = (time.time() // 60 + 1) * 60
+        return RateLimitResult(
+            allowed=allowed,
+            remaining=bucket.tokens,
+            reset_at=reset_at,
+            retry_after=self.config.block_duration_seconds if not allowed else None
+        )
             retry_after=self.config.block_duration_seconds if not allowed else None
         )
 
