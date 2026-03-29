@@ -62,10 +62,11 @@ class TokenBucket:
         return False
 
     @property
-    def tokens(self) -> int:
+    @property
+    def tokens(self) -> float:
         """Get current token count."""
         self._refill()
-        return int(self._tokens)
+        return self._tokens
 
 
 class RateLimiter:
