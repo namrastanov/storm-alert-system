@@ -199,12 +199,13 @@ class RateLimiter:
         """Reset limits for key."""
         self._buckets.pop(key, None)
         self._blocked.pop(key, None)
-        self._violations.pop(key, None)
-        self._last_access.pop(key, None)
-
-
-def rate_limit_middleware(
-    limiter: RateLimiter,
+    async def reset(self, key: str) -> None:
+        """Reset limits for key."""
+        async with self._lock:
+            self._buckets.pop(key, None)
+            self._blocked.pop(key, None)
+            self._violations.pop(key, None)
+            self._last_access.pop(key, None)
     key_func: Callable[[Any], str]
 ) -> Callable[[Any, Callable[[Any], Awaitable[Any]]], Awaitable[Any]]:
     """Create framework-agnostic ASGI rate limiting middleware."""
