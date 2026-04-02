@@ -91,10 +91,11 @@ class RateLimiter:
         self._eviction_lock = threading.Lock()
         self._lock = asyncio.Lock()
 
-    def _evict_stale(self) -> None:
-        """Periodically remove stale buckets and expired blocks to bound memory."""
-        now = time.time()
-        if now - self._last_eviction < self.config.eviction_interval_seconds:
+        with self._eviction_lock:
+            now = time.time()
+            if now - self._last_eviction < self.config.eviction_interval_seconds:
+                return
+            self._last_eviction = now
             return
         self._last_eviction = now
 
