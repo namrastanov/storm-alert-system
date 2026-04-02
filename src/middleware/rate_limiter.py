@@ -124,12 +124,8 @@ class RateLimiter:
                 self._blocked.pop(k, None)
                 self._violations.pop(k, None)
 
-    async def check(self, key: str) -> RateLimitResult:
-        """Check if request is allowed."""
-        # Offload eviction to a thread to avoid blocking the event loop
-        await asyncio.to_thread(self._evict_stale)
-
         async with self._lock:
+            self._evict_stale()
             now = time.time()
 
             # Check if key is blocked
