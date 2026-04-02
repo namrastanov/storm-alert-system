@@ -68,11 +68,8 @@ class TokenBucket:
         self._refill()
         return self._tokens
 
-    def time_to_next_token(self) -> float:
-        """Return seconds until at least one token is available."""
-        self._refill()
-        if self._tokens >= 1:
-            return 0.0
+        if self.rate <= 0:
+            return float('inf')
         return (1.0 - self._tokens) / self.rate
 
 
