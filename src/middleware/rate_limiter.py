@@ -225,18 +225,16 @@ def rate_limit_middleware(
                 await send({
                     "type": "http.response.start",
                     "status": 429,
-                    "headers": headers,
-                })
-                await send({
-                    "type": "http.response.body",
-                    "body": body,
-                })
-
-            return send_rate_limit_response
-
-        response = await call_next(request)
-        response.headers["X-RateLimit-Remaining"] = str(result.remaining)
-        response.headers["X-RateLimit-Reset"] = str(int(result.reset_at))
+            from starlette.responses import JSONResponse
+            return JSONResponse(
+                status_code=429,
+                content={"error": "Rate limit exceeded"},
+                headers={
+                    "Retry-After": str(result.retry_after),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(int(result.reset_at))
+                }
+            )
         return response
 
     return middleware
