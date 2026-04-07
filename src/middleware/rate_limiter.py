@@ -95,9 +95,11 @@ class RateLimiter:
             now = time.time()
 self._last_eviction = time.time()
             return
-        self._last_eviction = now
-
-        ttl = self.config.bucket_ttl_seconds
+        with self._eviction_lock:
+            now = time.time()
+            if now - self._last_eviction < self.config.eviction_interval_seconds:
+                return
+            self._last_eviction = now
 
         # Evict expired blocks
         expired_blocks = [k for k, v in self._blocked.items() if now >= v]
