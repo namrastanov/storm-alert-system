@@ -93,9 +93,7 @@ class RateLimiter:
 
         with self._eviction_lock:
             now = time.time()
-            if now - self._last_eviction < self.config.eviction_interval_seconds:
-                return
-            self._last_eviction = now
+self._last_eviction = time.time()
             return
         self._last_eviction = now
 
