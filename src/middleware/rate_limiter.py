@@ -69,10 +69,14 @@ class TokenBucket:
         self._refill()
         return self._tokens
 
+    def time_to_next_token(self) -> float:
+        """Return seconds until at least one token is available."""
+        self._refill()
         if self.rate <= 0:
             return float('inf')
+        if self._tokens >= 1:
+            return 0.0
         return (1.0 - self._tokens) / self.rate
-
 
 class RateLimiter:
     """In-memory rate limiter suitable for single-process deployments.
