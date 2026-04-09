@@ -112,7 +112,7 @@ self._last_eviction = time.time()
             self._violations.pop(k, None)
 
         # Evict stale buckets that haven't been accessed within the TTL
-        stale_keys = [k for k, v in self._last_access.items() if now - v > ttl]
+        stale_keys = [k for k, v in self._last_access.items() if now - v > self.config.bucket_ttl_seconds]
         for k in stale_keys:
             self._buckets.pop(k, None)
             self._last_access.pop(k, None)
