@@ -93,7 +93,6 @@ class RateLimiter:
         self._last_access: Dict[str, float] = {}  # tracks last access time per key
         self._lock = asyncio.Lock()
         self._eviction_lock = threading.Lock()
-        self._lock = asyncio.Lock()
 
         with self._eviction_lock:
             now = time.time()
