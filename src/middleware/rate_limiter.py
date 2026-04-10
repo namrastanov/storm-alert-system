@@ -240,7 +240,16 @@ def create_asgi_middleware(
                     "body": body,
                 })
 
-            return await send_rate_limit_response(request.scope, request.receive, request.send)
+            response = JSONResponse(
+                content={"error": "Rate limit exceeded"},
+                status_code=429,
+                headers={
+                    "Retry-After": str(result.retry_after),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": str(int(result.reset_at)),
+                }
+            )
+            return response
 
         return await call_next(request)
 
