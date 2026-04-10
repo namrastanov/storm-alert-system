@@ -224,7 +224,7 @@ def create_asgi_middleware(
             body = json.dumps({"error": "Rate limit exceeded"}).encode("utf-8")
             headers = [
                 (b"content-type", b"application/json"),
-                (b"retry-after", str(result.retry_after).encode()),
+                (b"retry-after", str(result.retry_after or 0).encode()),
                 (b"x-ratelimit-remaining", b"0"),
                 (b"x-ratelimit-reset", str(int(result.reset_at)).encode()),
             ]
