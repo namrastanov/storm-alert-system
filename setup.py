@@ -16,6 +16,8 @@ setup(
         "pandas>=2.0.0",
         "scikit-learn>=1.3.0",
         "requests>=2.31.0",
+        "aiohttp>=3.8.0",
+        "starlette>=0.27.0",
     ],
     extras_require={
         "dev": [
