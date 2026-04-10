@@ -244,7 +244,7 @@ def create_asgi_middleware(
                 content={"error": "Rate limit exceeded"},
                 status_code=429,
                 headers={
-                    "Retry-After": str(result.retry_after),
+                    "Retry-After": str(result.retry_after or 0),
                     "X-RateLimit-Remaining": "0",
                     "X-RateLimit-Reset": str(int(result.reset_at)),
                 }
