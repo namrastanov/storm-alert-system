@@ -22,10 +22,10 @@ class RateLimitConfig:
     requests_per_minute: int = 60
     burst_size: int = 10
     block_duration_seconds: int = 300
+    violation_window_seconds: int = 60  # window for counting violations
     bucket_ttl_seconds: int = _DEFAULT_BUCKET_TTL
     max_keys: int = _DEFAULT_MAX_KEYS
     eviction_interval_seconds: int = _DEFAULT_EVICTION_INTERVAL
-
 
 @dataclass
 class RateLimitResult:
@@ -93,16 +93,14 @@ class RateLimiter:
         self._last_access: Dict[str, float] = {}  # tracks last access time per key
         self._lock = asyncio.Lock()
         self._eviction_lock = threading.Lock()
+        self._last_eviction = time.time()
 
-        with self._eviction_lock:
-            now = time.time()
-self._last_eviction = time.time()
+    def _evict_stale(self) -> None:
+        """Evict expired blocks and stale buckets. Must be called with _eviction_lock held."""
+        now = time.time()
+        if now - self._last_eviction < self.config.eviction_interval_seconds:
             return
-        with self._eviction_lock:
-            now = time.time()
-            if now - self._last_eviction < self.config.eviction_interval_seconds:
-                return
-            self._last_eviction = now
+        self._last_eviction = now
 
         # Evict expired blocks
         expired_blocks = [k for k, v in self._blocked.items() if now >= v]
@@ -127,8 +125,14 @@ self._last_eviction = time.time()
                 self._blocked.pop(k, None)
                 self._violations.pop(k, None)
 
+    async def check(self, key: str) -> RateLimitResult:
+        """Check if request is allowed under rate limit.
+        
+        Returns RateLimitResult with allowed status and metadata.
+        """
         async with self._lock:
-            self._evict_stale()
+            with self._eviction_lock:
+                self._evict_stale()
             now = time.time()
 
             # Check if key is blocked
@@ -151,7 +155,7 @@ self._last_eviction = time.time()
             if not allowed:
                 # Update violation count
                 violation_count, first_violation_time = self._violations.get(key, (0, now))
-                if now - first_violation_time > 60:  # violation window expired
+                if now - first_violation_time > self.config.violation_window_seconds:
                     violation_count = 0
                     first_violation_time = now
                 violation_count += 1
@@ -198,10 +202,6 @@ self._last_eviction = time.time()
         self._last_access[key] = time.time()
         return self._buckets[key]
 
-    def reset(self, key: str) -> None:
-        """Reset limits for key."""
-        self._buckets.pop(key, None)
-        self._blocked.pop(key, None)
     async def reset(self, key: str) -> None:
         """Reset limits for key."""
         async with self._lock:
@@ -209,6 +209,10 @@ self._last_eviction = time.time()
             self._blocked.pop(key, None)
             self._violations.pop(key, None)
             self._last_access.pop(key, None)
+
+
+def create_asgi_middleware(
+    limiter: RateLimiter,
     key_func: Callable[[Any], str]
 ) -> Callable[[Any, Callable[[Any], Awaitable[Any]]], Awaitable[Any]]:
     """Create framework-agnostic ASGI rate limiting middleware."""
@@ -220,7 +224,7 @@ self._last_eviction = time.time()
             body = json.dumps({"error": "Rate limit exceeded"}).encode("utf-8")
             headers = [
                 (b"content-type", b"application/json"),
-                (b"retry-after", str(result.retry_after).encode()),
+                (b"retry-after", str(result.retry_after or 0).encode()),
                 (b"x-ratelimit-remaining", b"0"),
                 (b"x-ratelimit-reset", str(int(result.reset_at)).encode()),
             ]
@@ -229,16 +233,24 @@ self._last_eviction = time.time()
                 await send({
                     "type": "http.response.start",
                     "status": 429,
-            from starlette.responses import JSONResponse
-            return JSONResponse(
-                status_code=429,
+                    "headers": headers,
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": body,
+                })
+
+            response = JSONResponse(
                 content={"error": "Rate limit exceeded"},
+                status_code=429,
                 headers={
-                    "Retry-After": str(result.retry_after),
+                    "Retry-After": str(result.retry_after or 0),
                     "X-RateLimit-Remaining": "0",
-                    "X-RateLimit-Reset": str(int(result.reset_at))
+                    "X-RateLimit-Reset": str(int(result.reset_at)),
                 }
             )
-        return response
+            return response
+
+        return await call_next(request)
 
     return middleware
